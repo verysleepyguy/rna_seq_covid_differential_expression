@@ -1,0 +1,175 @@
+---
+title: "RNA-seq Differential Expression in COVID-19"
+author: "Justin Lee"
+date: "2026-01-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(DESeq2)
+library(GEOquery)
+library(tidyverse)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+library(ggplot2)
+
+counts_file <- "C:/Users/jungy/OneDrive/Desktop/Projects/rna seq differential expression/Data/Raw/GSE152418_raw_counts_GRCh38.p13_NCBI.tsv"
+
+raw_counts <- read.delim(counts_file, header = TRUE, row.names = 1, check.names = FALSE)
+
+dim(raw_counts)
+raw_counts[1:5, 1:5]
+
+gse <- getGEO("GSE152418", GSEMatrix = TRUE)
+pheno_data <- pData(gse[[1]])
+
+head(pheno_data)
+colnames(pheno_data)
+
+pheno_data$characteristics_ch1[1:10]
+
+grep("covid|status|disease|group|case|control|infect|patient|healthy|phenotype|condition|title|source", colnames(pheno_data), ignore.case = TRUE, value = TRUE)
+head(pheno_data$title, 10)
+
+head(pheno_data$source_name_ch1, 10)
+
+if ("description" %in% colnames(pheno_data)) head(pheno_data$description, 10)
+
+grep("^characteristics_ch1", colnames(pheno_data), value = TRUE)
+
+char_cols <- grep("^characteristics_ch1", colnames(pheno_data), value = TRUE)
+lapply(char_cols, function(cn) unique(pheno_data[[cn]])[1:10])
+
+keywords <- c("covid", "control", "healthy", "patient", "case", "infect")
+hits <- sapply(pheno_data, function(col) any(grepl(paste(keywords, collapse="|"), col, ignore.case=TRUE)))
+
+names(hits[hits])
+
+grep("covid|status|disease|group|case|control|infect|patient|healthy|phenotype|condition|title|source", colnames(pheno_data), ignore.case = TRUE, value = TRUE)
+
+grep("^characteristics_ch1", colnames(pheno_data), value = TRUE)
+
+head(pheno_data$status, 15)
+head(pheno_data$`disease state:ch1`, 15)
+
+unique(pheno_data$`disease state:ch1`)
+
+metadata <- pheno_data %>%transmute(sample = geo_accession, condition_raw = `disease state:ch1`, condition = case_when(condition_raw == "Healthy" ~ "Control", condition_raw == "COVID-19" ~ "COVID", condition_raw == "Convalescent" ~ NA_character_, TRUE ~ NA_character_))
+
+table(metadata$condition, useNA = "ifany")
+
+metadata <- metadata %>% filter(!is.na(condition))
+table(metadata$condition)
+
+raw_counts <- raw_counts[, colnames(raw_counts) %in% metadata$sample]
+metadata <- metadata[match(colnames(raw_counts), metadata$sample), ]
+stopifnot(all(metadata$sample == colnames(raw_counts)))
+
+metadata$condition <- factor(metadata$condition, levels = c("Control", "COVID"))
+
+dds <- DESeqDataSetFromMatrix(countData = raw_counts, colData = metadata, design = ~ condition)
+
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep, ]
+
+dds <- DESeq(dds)
+res <- results(dds, contrast = c("condition", "COVID", "Control"))
+summary(res)
+
+res_df <- as.data.frame(res) %>%
+  rownames_to_column("gene_id")
+
+sig_genes <- res_df %>% filter(!is.na(padj), padj < 0.05, abs(log2FoldChange) > 1) %>% arrange(padj)
+
+nrow(sig_genes)
+head(sig_genes)
+
+
+
+res_df$gene_symbol <- mapIds(org.Hs.eg.db, keys = res_df$gene_id, column = "SYMBOL", keytype = "ENTREZID", 
+multiVals = "first")
+
+sig_genes$gene_symbol <- mapIds(org.Hs.eg.db, keys = sig_genes$gene_id, column = "SYMBOL", keytype = "ENTREZID", multiVals = "first")
+
+results_dir <- "C:/Users/jungy/OneDrive/Desktop/Projects/rna seq differential expression/results"
+
+write.csv(res_df, file = file.path(results_dir, "deseq2_results_all_genes_annotated.csv"),row.names = FALSE)
+
+write.csv(sig_genes, file = file.path(results_dir, "deseq2_significant_genes_annotated.csv"), row.names = FALSE)
+
+fig_dir <- "C:/Users/jungy/OneDrive/Desktop/Projects/rna seq differential expression/Figures"
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
+
+plot_df <- res_df %>%
+  filter(!is.na(padj)) %>%
+  mutate(
+    neglog10_padj = -log10(padj),
+    category = case_when(
+      padj < 0.05 & log2FoldChange >= 1  ~ "Up in COVID",
+      padj < 0.05 & log2FoldChange <= -1 ~ "Down in COVID",
+      TRUE                               ~ "Not significant"
+    ),
+    label = ifelse(is.na(gene_symbol), gene_id, gene_symbol)
+  )
+
+top_label <- plot_df %>%
+  filter(category != "Not significant") %>%
+  arrange(padj) %>%
+  slice_head(n = 12)
+
+volcano <- ggplot(plot_df, aes(x = log2FoldChange, y = neglog10_padj, color = category)) +
+  geom_point(alpha = 0.5, size = 1.3) +
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+  ggrepel::geom_text_repel(
+    data = top_label,
+    aes(label = label),
+    size = 3,
+    max.overlaps = Inf
+  ) +
+  labs(
+    title = "Volcano Plot: COVID vs Control (DESeq2)",
+    x = "log2(Fold Change) (COVID / Control)",
+    y = "-log10(adjusted p-value)"
+  ) +
+  theme_classic() +
+  theme(legend.title = element_blank())
+
+volcano
+
+ggsave(
+  filename = file.path(fig_dir, "volcano_plot_R.png"),
+  plot = volcano,
+  width = 10,
+  height = 7,
+  dpi = 300
+)
+
+vsd <- vst(dds, blind = TRUE)
+
+pca_data <- plotPCA(vsd, intgroup = "condition", returnData = TRUE)
+
+percentVar <- round(100 * attr(pca_data, "percentVar"))
+
+p <- ggplot(pca_data, aes(x = PC1, y = PC2, color = condition)) + geom_point(size = 3, alpha = 0.9) +
+xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+ggtitle("PCA of RNA-seq samples (VST)") +
+theme_classic()
+
+fig_dir <- "C:/Users/jungy/OneDrive/Desktop/Projects/rna seq differential expression/Figures"
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
+
+ggsave(
+  filename = file.path(fig_dir, "pca_plot.png"),
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+
+
+
+```
+
+
