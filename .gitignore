@@ -1,0 +1,22 @@
+# R
+.Rhistory
+.RData
+.Rproj.user/
+
+# R Markdown
+*_cache/
+*_files/
+
+# Python
+__pycache__/
+.ipynb_checkpoints/
+
+# Data
+*.tsv
+*.tsv.gz
+raw_data/
+Data/Raw/
+
+# OS
+.DS_Store
+Thumbs.db
