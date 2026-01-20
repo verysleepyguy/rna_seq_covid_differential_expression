@@ -65,3 +65,7 @@ Additionally, genes related to antibody production and B-cell function (e.g., *I
 Overall, these findings are consistent with a strong systemic immune response to SARS-CoV-2 infection in whole blood.
 
 ---
+
+## Data Availability
+Raw RNA-seq data are publicly available from the NCBI Gene Expression Omnibus under accession **GSE152418**.
+Processed results and analysis outputs generated in this study are included in this repository.
