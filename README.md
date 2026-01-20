@@ -18,6 +18,29 @@ Raw RNA-seq count data were used to ensure valid statistical modeling.
 - Differential expression was assessed between COVID-19 and control samples.
 - Multiple hypothesis testing was controlled using the **Benjamini–Hochberg false discovery rate (FDR)**.
 
+## Reproducibility / How to Run This Analysis
+
+### Requirements
+- R (≥ 4.2)
+- R packages:
+  - DESeq2
+  - GEOquery
+  - tidyverse
+  - ggplot2
+  - ggrepel
+  - org.Hs.eg.db
+  - AnnotationDbi
+
+### Data Acquisition
+Raw RNA-seq count data were downloaded from NCBI GEO (accession **GSE152418**).
+Due to file size considerations, raw count files are not stored in this repository.
+
+### Steps to Reproduce
+1. Download the raw RNA-seq count matrix from GEO (GSE152418).
+2. Update the file path in `R_analysis/01_deseq2_analysis.Rmd` to point to the downloaded count file.
+3. Open `01_deseq2_analysis.Rmd` in RStudio.
+4. Knit the RMarkdown file to HTML to reproduce all analyses and figures.
+
 ### Gene Annotation
 - Differentially expressed genes were annotated by mapping Entrez Gene IDs to human gene symbols using curated human gene annotation databases.
 
