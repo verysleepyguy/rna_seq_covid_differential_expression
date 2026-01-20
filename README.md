@@ -22,7 +22,7 @@ Raw RNA-seq count data were used to ensure valid statistical modeling.
 - Differentially expressed genes were annotated by mapping Entrez Gene IDs to human gene symbols using curated human gene annotation databases.
 
 ### Visualization
-- A **volcano plot** was generated in Python to visualize statistical significance versus effect size.
+- A **volcano plot** was generated to visualize statistical significance versus effect size.
 - **Principal Component Analysis (PCA)** was performed on variance-stabilized expression values to assess global transcriptional differences between samples.
 
 ---
