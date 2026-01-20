@@ -57,6 +57,16 @@ Due to file size considerations, raw count files are not stored in this reposito
 
 ---
 
+## Key Outputs
+
+### Volcano Plot
+![Volcano Plot](Figures/volcano_plot.png)
+Differential expression results showing effect size versus statistical significance.
+
+### PCA Plot
+![PCA Plot](Figures/pca_plot.png)
+Principal Component Analysis of variance-stabilized expression values showing global transcriptional differences between COVID-19 and control samples.
+
 ## Biological Interpretation
 Many of the most significantly upregulated genes are involved in immune activation and cell proliferation.  
 Key genes associated with cell-cycle regulation (e.g., *PLK1*, *AURKB*, *CCNA2*, *CDC20*) suggest increased proliferation of immune cells in response to infection.  
