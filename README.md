@@ -21,7 +21,7 @@ Raw RNA-seq count data were used to ensure valid statistical modeling.
 ## Reproducibility / How to Run This Analysis
 
 ### Requirements
-- R (≥ 4.2)
+- R
 - R packages:
   - DESeq2
   - GEOquery
