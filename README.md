@@ -64,7 +64,7 @@ Due to file size considerations, raw count files are not stored in this reposito
 Differential expression results showing effect size versus statistical significance.
 
 ### PCA Plot
-![PCA Plot](Figures/pca_plot.png)
+![PCA Plot](Figures/pca_plot_R.png)
 Principal Component Analysis of variance-stabilized expression values showing global transcriptional differences between COVID-19 and control samples.
 
 ## Biological Interpretation
