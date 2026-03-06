@@ -1,0 +1,249 @@
+---
+title: "RNA-seq Differential Expression in COVID-19"
+author: "Justin Lee"
+date: "2026-01-06"
+output: html_document
+---
+
+## Setup
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+library(DESeq2)
+library(GEOquery)
+library(tidyverse)
+library(ggplot2)
+library(ggrepel)
+
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+```
+
+## 1. Load data
+
+```{r paths}
+counts_file <- "C:/Users/jungy/OneDrive/Desktop/Projects/NSF REU/rna seq differential expression/Data/Raw/GSE152418_raw_counts_GRCh38.p13_NCBI.tsv"
+
+results_dir <- "C:/Users/jungy/OneDrive/Desktop/Projects/rna seq differential expression/results"
+fig_dir     <- "C:/Users/jungy/OneDrive/Desktop/Projects/rna seq differential expression/Figures"
+
+dir.create(results_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(fig_dir,     showWarnings = FALSE, recursive = TRUE)
+
+stopifnot(file.exists(counts_file))
+```
+
+## 2. Load raw counts
+
+```{r load-counts}
+raw_counts <- read.delim(
+  counts_file,
+  header = TRUE,
+  row.names = 1,
+  check.names = FALSE
+)
+
+dim(raw_counts)
+raw_counts[1:5, 1:5]
+```
+
+## 3. Load GEO metadata (phenotype)
+
+```{r load-geo}
+gse <- getGEO("GSE152418", GSEMatrix = TRUE)
+pheno_data <- pData(gse[[1]])
+
+dim(pheno_data)
+head(pheno_data[, 1:min(8, ncol(pheno_data))])
+```
+
+## 4. Identify the condition column + build sample metadata
+
+```{r build-metadata}
+unique(pheno_data$`disease state:ch1`)
+
+metadata <- pheno_data %>%
+  transmute(
+    sample = geo_accession,
+    condition_raw = `disease state:ch1`,
+    condition = case_when(
+      condition_raw == "Healthy"   ~ "Control",
+      condition_raw == "COVID-19"  ~ "COVID",
+      TRUE                         ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(condition))
+
+metadata$condition <- factor(metadata$condition, levels = c("Control", "COVID"))
+
+table(metadata$condition)
+head(metadata)
+```
+
+## 5. Align count matrix columns to metadata rows
+
+```{r align-counts}
+raw_counts <- raw_counts[, colnames(raw_counts) %in% metadata$sample, drop = FALSE]
+
+metadata <- metadata[match(colnames(raw_counts), metadata$sample), , drop = FALSE]
+
+stopifnot(all(metadata$sample == colnames(raw_counts)))
+
+dim(raw_counts)
+head(colnames(raw_counts))
+```
+
+## 6. Differential expression with DESeq2
+
+```{r deseq2}
+dds <- DESeqDataSetFromMatrix(
+  countData = raw_counts,
+  colData   = metadata,
+  design    = ~ condition
+)
+
+dds <- dds[rowSums(counts(dds)) >= 10, ]
+
+dds <- DESeq(dds)
+
+res <- results(dds, contrast = c("condition", "COVID", "Control"))
+summary(res)
+
+res_df <- as.data.frame(res) %>%
+  rownames_to_column("gene_id") %>%
+  mutate(gene_id = as.character(gene_id))
+```
+
+## 7. Significant genes table
+
+```{r significant-genes}
+PADJ_CUTOFF <- 0.05
+LFC_CUTOFF  <- 1
+
+sig_genes <- res_df %>%
+  filter(!is.na(padj), padj < PADJ_CUTOFF, abs(log2FoldChange) > LFC_CUTOFF) %>%
+  arrange(padj)
+
+nrow(sig_genes)
+head(sig_genes, 10)
+```
+
+## 8. Annotate genes (Entrez ID -\> gene symbol)
+
+```{r annotate-genes}
+res_df$gene_symbol <- mapIds(
+  org.Hs.eg.db,
+  keys      = res_df$gene_id,
+  column    = "SYMBOL",
+  keytype   = "ENTREZID",
+  multiVals = "first"
+)
+
+sig_genes$gene_symbol <- mapIds(
+  org.Hs.eg.db,
+  keys      = sig_genes$gene_id,
+  column    = "SYMBOL",
+  keytype   = "ENTREZID",
+  multiVals = "first"
+)
+
+sig_genes %>%
+  select(gene_id, gene_symbol, log2FoldChange, padj) %>%
+  head(10)
+```
+
+## 9. Export results tables
+
+```{r export-results}
+write.csv(
+  res_df,
+  file = file.path(results_dir, "deseq2_results_all_genes_annotated.csv"),
+  row.names = FALSE
+)
+
+write.csv(
+  sig_genes,
+  file = file.path(results_dir, "deseq2_significant_genes_annotated.csv"),
+  row.names = FALSE
+)
+
+list.files(results_dir)
+```
+
+## 10. Volcano plot
+
+```{r volcano-plot}
+plot_df <- res_df %>%
+  filter(!is.na(padj)) %>%
+  mutate(
+    neglog10_padj = -log10(padj),
+    category = case_when(
+      padj < PADJ_CUTOFF & log2FoldChange >=  LFC_CUTOFF ~ "Up in COVID",
+      padj < PADJ_CUTOFF & log2FoldChange <= -LFC_CUTOFF ~ "Down in COVID",
+      TRUE                                               ~ "Not significant"
+    ),
+    label = ifelse(is.na(gene_symbol), gene_id, gene_symbol)
+  )
+
+top_label <- plot_df %>%
+  filter(category != "Not significant") %>%
+  arrange(padj) %>%
+  slice_head(n = 12)
+
+volcano <- ggplot(plot_df, aes(x = log2FoldChange, y = neglog10_padj, color = category)) +
+  geom_point(alpha = 0.5, size = 1.3) +
+  geom_vline(xintercept = c(-LFC_CUTOFF, LFC_CUTOFF), linetype = "dashed") +
+  geom_hline(yintercept = -log10(PADJ_CUTOFF), linetype = "dashed") +
+  geom_text_repel(data = top_label, aes(label = label), size = 3, max.overlaps = Inf) +
+  labs(
+    title = "Volcano Plot: COVID vs Control (DESeq2)",
+    x = "log2(Fold Change) (COVID / Control)",
+    y = "-log10(adjusted p-value)"
+  ) +
+  theme_classic() +
+  theme(legend.title = element_blank())
+
+volcano
+
+ggsave(
+  filename = file.path(fig_dir, "volcano_plot_R.png"),
+  plot = volcano,
+  width = 10,
+  height = 7,
+  dpi = 300
+)
+```
+
+## 11. PCA plot
+
+```{r pca-plot}
+vsd <- vst(dds, blind = TRUE)
+
+pca_data <- plotPCA(vsd, intgroup = "condition", returnData = TRUE)
+percentVar <- round(100 * attr(pca_data, "percentVar"))
+
+pca_plot <- ggplot(pca_data, aes(x = PC1, y = PC2, color = condition)) +
+  geom_point(size = 3, alpha = 0.9) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  ggtitle("PCA of RNA-seq samples (VST)") +
+  theme_classic() +
+  theme(legend.title = element_blank())
+
+pca_plot
+
+ggsave(
+  filename = file.path(fig_dir, "pca_plot.png"),
+  plot = pca_plot,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+```
+
+## 12. Session info
+
+```{r session-info}
+sessionInfo()
+```
